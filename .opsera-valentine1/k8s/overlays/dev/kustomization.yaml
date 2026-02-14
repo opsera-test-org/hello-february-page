@@ -1,21 +1,16 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-
 namespace: opsera-valentine1-dev
-
 resources:
   - ../../base
-
 images:
   - name: PLACEHOLDER_ECR_URI/opsera/valentine1
     newName: PLACEHOLDER_ECR_URI/opsera/valentine1
-    newTag: latest
-
+    newTag: ""
 labels:
   - includeSelectors: false
     pairs:
       environment: dev
-
 patches:
   - patch: |-
       - op: replace
