@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: valentine1
+  namespace: opsera-valentine1-dev
+  labels:
+    app: valentine1
+    tenant: opsera
+    managed-by: opsera-c2c
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - valentine1-dev.opsera-usw2-np.agent.opsera.dev
+      secretName: valentine1-dev-tls
+  rules:
+    - host: valentine1-dev.opsera-usw2-np.agent.opsera.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: valentine1
+                port:
+                  number: 80
