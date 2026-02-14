@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: opsera-fbb3-dev
-  labels:
-    tenant: opsera
-    app: fbb3
-    environment: dev
-    managed-by: opsera-c2c
