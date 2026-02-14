@@ -241,6 +241,13 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
@@ -252,17 +259,22 @@ jobs:
 
       - name: Update kustomization.yaml with new image tag
         run: |
+          # Get AWS account ID for ECR URI
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}"
+
           cd .opsera-${APP_NAME}/k8s/overlays/${ENVIRONMENT}
 
           if [ -f kustomization.yaml ]; then
-            # Update existing image tag
+            # Update both ECR URI and image tag
+            yq eval -i ".images[0].newName = \"${ECR_IMAGE}\"" kustomization.yaml
             yq eval -i ".images[0].newTag = \"${{ needs.push-to-ecr.outputs.image_tag }}\"" kustomization.yaml
           else
             echo "❌ kustomization.yaml not found"
             exit 1
           fi
 
-          echo "✓ Updated image tag to: ${{ needs.push-to-ecr.outputs.image_tag }}"
+          echo "✓ Updated image: ${ECR_IMAGE}:${{ needs.push-to-ecr.outputs.image_tag }}"
           cat kustomization.yaml
 
       - name: Commit and push changes (idempotent)
