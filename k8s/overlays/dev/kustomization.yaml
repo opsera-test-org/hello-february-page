@@ -1,0 +1,43 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: opsera-feb14-dev
+
+# Reference base resources
+resources:
+  - ../../base
+
+# Environment-specific labels (doesn't modify selectors)
+labels:
+  - includeSelectors: false
+    pairs:
+      environment: dev
+      deployment-strategy: rolling
+
+# Set image (will be updated by CI/CD workflow)
+images:
+  - name: feb14
+    newName: PLACEHOLDER_ECR_URI
+    newTag: latest
+
+# Environment-specific patches
+patches:
+  - target:
+      kind: Deployment
+      name: feb14
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: ENVIRONMENT
+          value: "dev"
+
+# Config map generator for environment-specific config
+configMapGenerator:
+  - name: feb14-config
+    literals:
+      - ENVIRONMENT=dev
+      - LOG_LEVEL=debug
