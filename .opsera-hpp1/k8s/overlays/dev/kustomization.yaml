@@ -14,6 +14,6 @@ labels:
       tenant: opsera
 
 images:
-  - name: PLACEHOLDER_ECR_URI
-    newName: PLACEHOLDER_ECR_URI
-    newTag: latest
+  - name: 792373136340.dkr.ecr.us-west-2.amazonaws.com/opsera/hpp1
+    newName: 792373136340.dkr.ecr.us-west-2.amazonaws.com/opsera/hpp1
+    newTag: 
