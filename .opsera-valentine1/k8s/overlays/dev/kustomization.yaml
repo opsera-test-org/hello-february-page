@@ -6,7 +6,7 @@ resources:
 images:
   - name: PLACEHOLDER_ECR_URI/opsera/valentine1
     newName: 792373136340.dkr.ecr.us-west-2.amazonaws.com/opsera/valentine1
-    newTag: ""
+    newTag: "175aa6b-20260214193211"
 labels:
   - includeSelectors: false
     pairs:
