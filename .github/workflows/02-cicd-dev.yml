@@ -146,6 +146,7 @@ jobs:
       contents: read
       id-token: write
     outputs:
+      image_tag: ${{ needs.build-image.outputs.image_tag }}
       ecr_uri: ${{ steps.push-image.outputs.ecr_uri }}
       full_image: ${{ steps.push-image.outputs.full_image }}
     steps:
