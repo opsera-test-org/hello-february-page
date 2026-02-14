@@ -4,32 +4,30 @@ kind: Kustomization
 namespace: opsera-last1-dev
 
 resources:
-  - ../../base
+- ../../base
 
 labels:
-  - includeSelectors: false
-    pairs:
-      environment: dev
-      managed-by: opsera-c2c
+- pairs:
+    environment: dev
+    managed-by: opsera-c2c
 
 images:
-  - name: last1
-    newName: PLACEHOLDER_ECR_URI
-    newTag: placeholder
+- name: last1
+  newName: 792373136340.dkr.ecr.us-west-2.amazonaws.com/opsera/last1
 
 replicas:
-  - name: last1
-    count: 2
+- count: 2
+  name: last1
 
 patches:
-  - target:
-      kind: Deployment
-      name: last1
-    patch: |-
-      - op: replace
-        path: /spec/strategy
-        value:
-          type: RollingUpdate
-          rollingUpdate:
-            maxSurge: 1
-            maxUnavailable: 0
+- patch: |-
+    - op: replace
+      path: /spec/strategy
+      value:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 1
+          maxUnavailable: 0
+  target:
+    kind: Deployment
+    name: last1
