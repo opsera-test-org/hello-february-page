@@ -1,0 +1,31 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: last1
+  namespace: opsera-last1-dev
+  labels:
+    app: last1
+    tenant: opsera
+    managed-by: opsera-c2c
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - last1-dev.agent.opsera.dev
+      secretName: last1-dev-tls
+  rules:
+    - host: last1-dev.agent.opsera.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: last1
+                port:
+                  number: 80

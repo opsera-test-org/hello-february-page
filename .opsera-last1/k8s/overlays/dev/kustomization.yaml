@@ -1,0 +1,35 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: opsera-last1-dev
+
+resources:
+  - ../../base
+
+labels:
+  - includeSelectors: false
+    pairs:
+      environment: dev
+      managed-by: opsera-c2c
+
+images:
+  - name: last1
+    newName: PLACEHOLDER_ECR_URI
+    newTag: placeholder
+
+replicas:
+  - name: last1
+    count: 2
+
+patches:
+  - target:
+      kind: Deployment
+      name: last1
+    patch: |-
+      - op: replace
+        path: /spec/strategy
+        value:
+          type: RollingUpdate
+          rollingUpdate:
+            maxSurge: 1
+            maxUnavailable: 0
