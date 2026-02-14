@@ -289,18 +289,13 @@ jobs:
             exit 0
           fi
 
-          # Stage changes FIRST (before pull)
+          # Stage and commit changes
           git add k8s/overlays/dev/kustomization.yaml
-
-          # Pull latest changes with rebase
-          git pull --rebase origin main
-
-          # Commit changes
           git commit -m "Update dev image to ${SHORT_SHA} [skip ci]
 
           Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
-          # Push with retry logic
+          # Push with retry logic (pull with rebase if push fails)
           for i in {1..3}; do
             if git push origin main; then
               echo "✅ Manifest changes pushed successfully"
