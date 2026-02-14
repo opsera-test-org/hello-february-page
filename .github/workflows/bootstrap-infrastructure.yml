@@ -1,0 +1,120 @@
+name: Bootstrap Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to bootstrap'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  bootstrap:
+    name: Bootstrap ${{ inputs.environment }} Infrastructure
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-west-2
+        run: |
+          echo "AWS credentials configured"
+          aws sts get-caller-identity
+
+      - name: Get AWS Account ID
+        id: aws-account
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account_id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
+          echo "AWS Account ID: $ACCOUNT_ID"
+
+      - name: Log in to Amazon ECR
+        env:
+          AWS_REGION: us-west-2
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${{ steps.aws-account.outputs.account_id }}.dkr.ecr.$AWS_REGION.amazonaws.com
+
+      - name: Create ECR Repository (if not exists)
+        env:
+          AWS_REGION: us-west-2
+          ECR_REPOSITORY: hpf1
+        run: |
+          aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION 2>/dev/null || \
+          aws ecr create-repository --repository-name $ECR_REPOSITORY --region $AWS_REGION \
+            --image-scanning-configuration scanOnPush=true \
+            --encryption-configuration encryptionType=AES256
+          echo "ECR repository ensured: $ECR_REPOSITORY"
+
+      - name: Configure kubectl for spoke cluster
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_SPOKE }}
+        run: |
+          mkdir -p $HOME/.kube
+          echo "$KUBE_CONFIG_DATA" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+          kubectl cluster-info
+          kubectl config current-context
+
+      - name: Create namespace (idempotent)
+        run: |
+          kubectl apply -f k8s/base/namespace.yaml || true
+          kubectl get namespace opsera-hpf1-dev
+
+      - name: Refresh ECR Secret on Spoke Cluster
+        env:
+          AWS_REGION: us-west-2
+        run: |
+          NAMESPACE=opsera-hpf1-dev
+          ECR_TOKEN=$(aws ecr get-login-password --region $AWS_REGION)
+          ECR_REGISTRY=${{ steps.aws-account.outputs.account_id }}.dkr.ecr.$AWS_REGION.amazonaws.com
+
+          kubectl delete secret ecr-secret -n $NAMESPACE --ignore-not-found=true
+          kubectl create secret docker-registry ecr-secret \
+            --docker-server=$ECR_REGISTRY \
+            --docker-username=AWS \
+            --docker-password=$ECR_TOKEN \
+            --namespace=$NAMESPACE
+
+          echo "ECR secret refreshed in namespace $NAMESPACE"
+
+      - name: Configure kubectl for hub cluster (ArgoCD)
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_HUB }}
+        run: |
+          echo "$KUBE_CONFIG_DATA" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+          kubectl cluster-info
+          kubectl config current-context
+
+      - name: Create ArgoCD Application (idempotent)
+        run: |
+          kubectl apply -f k8s/overlays/dev/argocd-application.yaml
+          echo "ArgoCD application created/updated: hpf1-dev"
+          kubectl get application hpf1-dev -n argocd
+
+      - name: Bootstrap Complete
+        run: |
+          echo "✅ Bootstrap completed successfully for ${{ inputs.environment }}"
+          echo ""
+          echo "Resources created:"
+          echo "  • Namespace: opsera-hpf1-dev"
+          echo "  • ECR Repository: hpf1"
+          echo "  • ECR Secret: ecr-secret (on spoke cluster)"
+          echo "  • ArgoCD Application: hpf1-dev (on hub cluster)"
+          echo ""
+          echo "Next steps:"
+          echo "  1. Push code changes to main branch to trigger CI/CD"
+          echo "  2. Monitor deployment: kubectl get pods -n opsera-hpf1-dev"

@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference base directory
+resources:
+  - ../../base
+
+# Environment-specific labels
+commonLabels:
+  environment: dev
+
+# Image configuration (will be updated by CI/CD)
+images:
+  - name: PLACEHOLDER_ECR_URI/hpf1
+    newTag: latest
+
+# Environment-specific patches
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: hpf1
+        namespace: opsera-hpf1-dev
+      spec:
+        replicas: 2
+    target:
+      kind: Deployment
+      name: hpf1
