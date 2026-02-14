@@ -283,18 +283,19 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Pull latest changes
-          git pull --rebase origin main
-
           # Check if there are changes to commit
           if git diff --quiet k8s/overlays/dev/kustomization.yaml; then
             echo "✅ No manifest changes to commit"
             exit 0
           fi
 
-          # Stage and commit changes
+          # Stage changes FIRST (before pull)
           git add k8s/overlays/dev/kustomization.yaml
 
+          # Pull latest changes with rebase
+          git pull --rebase origin main
+
+          # Commit changes
           git commit -m "Update dev image to ${SHORT_SHA} [skip ci]
 
           Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
