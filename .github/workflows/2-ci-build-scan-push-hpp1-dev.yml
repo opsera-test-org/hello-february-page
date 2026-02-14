@@ -294,8 +294,8 @@ jobs:
           ECR_URI="${{ needs.push-to-ecr.outputs.ecr_uri }}"
           IMAGE_TAG="${{ needs.build-image.outputs.image_tag }}"
 
-          # Replace PLACEHOLDER_ECR_URI with actual ECR URI
-          sed -i "s|PLACEHOLDER_ECR_URI|${ECR_URI}|g" kustomization.yaml
+          # Update newName (NOT name - name stays as PLACEHOLDER_ECR_URI)
+          sed -i "s|newName:.*|newName: ${ECR_URI}|g" kustomization.yaml
 
           # Update image tag
           sed -i "s|newTag:.*|newTag: ${IMAGE_TAG}|g" kustomization.yaml
