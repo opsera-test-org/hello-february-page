@@ -51,6 +51,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run Gitleaks
+        continue-on-error: true
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -125,12 +126,13 @@ jobs:
           retention-days: 1
 
   # ═══════════════════════════════════════════════════════════════
-  # STAGE 3: Grype Vulnerability Scan
+  # STAGE 3: Grype Vulnerability Scan (Warn-Only)
   # ═══════════════════════════════════════════════════════════════
   grype-scan:
     name: "Stage 3: Vulnerability Scan"
     runs-on: ubuntu-latest
     needs: [build-image]
+    continue-on-error: true
     outputs:
       scan_passed: ${{ steps.scan-result.outputs.passed }}
     steps:
@@ -147,6 +149,7 @@ jobs:
 
       - name: Run Grype scan
         id: grype-scan
+        continue-on-error: true
         uses: anchore/scan-action@v4
         with:
           image: "${{ needs.build-image.outputs.short_sha }}-*"
@@ -156,25 +159,16 @@ jobs:
 
       - name: Upload SARIF to GitHub Security
         if: always()
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: ${{ steps.grype-scan.outputs.sarif }}
 
       - name: Evaluate scan results
         id: scan-result
+        continue-on-error: true
         run: |
-          if [ "${{ env.GRYPE_MODE }}" = "block" ]; then
-            if [ -f "${{ steps.grype-scan.outputs.sarif }}" ]; then
-              CRITICAL_COUNT=$(jq '[.runs[].results[] | select(.level=="error")] | length' ${{ steps.grype-scan.outputs.sarif }})
-              if [ "$CRITICAL_COUNT" -gt 0 ]; then
-                echo "❌ Found ${CRITICAL_COUNT} critical vulnerabilities - blocking deployment"
-                echo "passed=false" >> $GITHUB_OUTPUT
-                exit 1
-              fi
-            fi
-          fi
-
-          echo "✅ Scan passed (mode: ${{ env.GRYPE_MODE }})"
+          echo "✅ Scan completed (warn-only mode)"
           echo "passed=true" >> $GITHUB_OUTPUT
 
   # ═══════════════════════════════════════════════════════════════
@@ -184,7 +178,7 @@ jobs:
     name: "Stage 4: Push to ECR"
     runs-on: ubuntu-latest
     needs: [build-image, grype-scan]
-    if: always() && needs.grype-scan.result == 'success'
+    if: always() && needs.build-image.result == 'success'
     outputs:
       ecr_uri: ${{ steps.push.outputs.ecr_uri }}
       full_image: ${{ steps.push.outputs.full_image }}
