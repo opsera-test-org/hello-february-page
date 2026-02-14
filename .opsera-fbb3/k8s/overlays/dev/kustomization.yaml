@@ -14,7 +14,7 @@ labels:
 images:
   - name: PLACEHOLDER_IMAGE
     newName: PLACEHOLDER_ECR_URI
-    newTag: 35be463-20260214-165239
+    newTag: 1536f92-20260214-165812
 
 replicas:
   - name: fbb3
