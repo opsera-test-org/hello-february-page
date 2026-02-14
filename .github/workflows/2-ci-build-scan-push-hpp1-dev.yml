@@ -184,7 +184,7 @@ jobs:
     name: "Stage 4: Push to ECR"
     runs-on: ubuntu-latest
     needs: [build-image, grype-scan]
-    if: needs.grype-scan.outputs.scan_passed == 'true' || env.GRYPE_MODE == 'warn'
+    if: always() && needs.grype-scan.result == 'success'
     outputs:
       ecr_uri: ${{ steps.push.outputs.ecr_uri }}
       full_image: ${{ steps.push.outputs.full_image }}
