@@ -1,0 +1,271 @@
+name: "1️⃣ Bootstrap Infrastructure - hpp1"
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "bootstrap" to confirm one-time infrastructure setup'
+        required: true
+        default: ''
+
+env:
+  APP_NAME: hpp1
+  TENANT: opsera
+  AWS_REGION: us-west-2
+  HUB_CLUSTER: argocd-usw2
+  SPOKE_CLUSTER: opsera-usw2-np
+  ECR_REPO_NAME: opsera/hpp1
+
+jobs:
+  validate-input:
+    name: Validate Bootstrap Confirmation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        if: github.event.inputs.confirm != 'bootstrap'
+        run: |
+          echo "❌ Bootstrap not confirmed. Please type 'bootstrap' to proceed."
+          exit 1
+
+  setup-ecr:
+    name: Setup ECR Repository
+    runs-on: ubuntu-latest
+    needs: validate-input
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create ECR repository (idempotent)
+        run: |
+          echo "Checking ECR repository: ${{ env.ECR_REPO_NAME }}"
+
+          if aws ecr describe-repositories --repository-names "${{ env.ECR_REPO_NAME }}" 2>/dev/null; then
+            echo "✅ ECR repository already exists: ${{ env.ECR_REPO_NAME }}"
+          else
+            echo "Creating ECR repository..."
+            aws ecr create-repository \
+              --repository-name "${{ env.ECR_REPO_NAME }}" \
+              --image-tag-mutability IMMUTABLE \
+              --encryption-configuration encryptionType=AES256 \
+              --tags Key=tenant,Value=${{ env.TENANT }} \
+                     Key=app,Value=${{ env.APP_NAME }} \
+                     Key=managed-by,Value=opsera-c2c
+            echo "✅ ECR repository created: ${{ env.ECR_REPO_NAME }}"
+          fi
+
+  register-repository:
+    name: Register Repository with ArgoCD
+    runs-on: ubuntu-latest
+    needs: validate-input
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure hub cluster access
+        run: |
+          aws eks update-kubeconfig --name ${{ env.HUB_CLUSTER }} --region ${{ env.AWS_REGION }} --alias hub
+
+      - name: Register repository secret (idempotent)
+        run: |
+          REPO_SECRET_NAME="repo-${{ github.repository_owner }}-${{ env.APP_NAME }}"
+
+          if kubectl --context hub get secret "$REPO_SECRET_NAME" -n argocd &>/dev/null; then
+            echo "✅ Repository secret already exists - skipping"
+            exit 0
+          fi
+
+          echo "Creating repository secret..."
+          cat <<EOF | kubectl --context hub apply -f -
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: ${REPO_SECRET_NAME}
+            namespace: argocd
+            labels:
+              argocd.argoproj.io/secret-type: repository
+          type: Opaque
+          stringData:
+            type: git
+            url: https://github.com/${{ github.repository }}.git
+            password: ${{ secrets.GH_PAT }}
+            username: git
+          EOF
+
+          echo "✅ Repository registered with ArgoCD"
+
+  register-spoke-cluster:
+    name: Register Spoke Cluster with ArgoCD
+    runs-on: ubuntu-latest
+    needs: validate-input
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure cluster access
+        run: |
+          aws eks update-kubeconfig --name ${{ env.HUB_CLUSTER }} --region ${{ env.AWS_REGION }} --alias hub
+          aws eks update-kubeconfig --name ${{ env.SPOKE_CLUSTER }} --region ${{ env.AWS_REGION }} --alias spoke
+
+      - name: Check if spoke cluster already registered
+        id: check-registration
+        run: |
+          if kubectl --context hub get secret -n argocd cluster-${{ env.SPOKE_CLUSTER }} 2>/dev/null; then
+            echo "✅ Spoke cluster already registered: ${{ env.SPOKE_CLUSTER }}"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Register spoke cluster
+        if: steps.check-registration.outputs.skip == 'false'
+        run: |
+          echo "Registering spoke cluster with ArgoCD..."
+
+          # Get spoke cluster details
+          SPOKE_SERVER=$(aws eks describe-cluster --name ${{ env.SPOKE_CLUSTER }} --region ${{ env.AWS_REGION }} \
+            --query 'cluster.endpoint' --output text)
+          SPOKE_CA=$(aws eks describe-cluster --name ${{ env.SPOKE_CLUSTER }} --region ${{ env.AWS_REGION }} \
+            --query 'cluster.certificateAuthority.data' --output text)
+
+          if [ -z "$SPOKE_SERVER" ] || [ "$SPOKE_SERVER" = "None" ]; then
+            echo "❌ Failed to get spoke cluster endpoint"
+            exit 1
+          fi
+
+          # Create service account and token
+          kubectl --context spoke create serviceaccount argocd-manager -n kube-system --dry-run=client -o yaml | kubectl --context spoke apply -f -
+          kubectl --context spoke create clusterrolebinding argocd-manager --clusterrole=cluster-admin --serviceaccount=kube-system:argocd-manager --dry-run=client -o yaml | kubectl --context spoke apply -f -
+
+          TOKEN=$(kubectl --context spoke create token argocd-manager -n kube-system --duration=87600h 2>/dev/null)
+
+          # Create cluster secret
+          cat <<EOF | kubectl --context hub apply -f -
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: cluster-${{ env.SPOKE_CLUSTER }}
+            namespace: argocd
+            labels:
+              argocd.argoproj.io/secret-type: cluster
+          type: Opaque
+          stringData:
+            name: "${{ env.SPOKE_CLUSTER }}"
+            server: "${SPOKE_SERVER}"
+            config: |
+              {
+                "bearerToken": "${TOKEN}",
+                "tlsClientConfig": {
+                  "insecure": false,
+                  "caData": "${SPOKE_CA}"
+                }
+              }
+          EOF
+
+          echo "✅ Spoke cluster registered: ${{ env.SPOKE_CLUSTER }}"
+
+  create-namespaces:
+    name: Create Namespaces
+    runs-on: ubuntu-latest
+    needs: [validate-input, register-spoke-cluster]
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure spoke cluster access
+        run: |
+          aws eks update-kubeconfig --name ${{ env.SPOKE_CLUSTER }} --region ${{ env.AWS_REGION }} --alias spoke
+
+      - name: Create namespaces (idempotent)
+        run: |
+          for ENV in dev; do
+            NAMESPACE="${{ env.TENANT }}-${{ env.APP_NAME }}-${ENV}"
+
+            if kubectl --context spoke get namespace ${NAMESPACE} 2>/dev/null; then
+              echo "✅ Namespace already exists: ${NAMESPACE}"
+            else
+              kubectl --context spoke create namespace ${NAMESPACE}
+              kubectl --context spoke label namespace ${NAMESPACE} \
+                tenant=${{ env.TENANT }} \
+                app=${{ env.APP_NAME }} \
+                environment=${ENV} \
+                managed-by=opsera-c2c
+              echo "✅ Namespace created: ${NAMESPACE}"
+            fi
+          done
+
+  create-service-accounts:
+    name: Create Service Accounts
+    runs-on: ubuntu-latest
+    needs: [create-namespaces]
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure spoke cluster access
+        run: |
+          aws eks update-kubeconfig --name ${{ env.SPOKE_CLUSTER }} --region ${{ env.AWS_REGION }} --alias spoke
+
+      - name: Create service accounts (idempotent)
+        run: |
+          for ENV in dev; do
+            NAMESPACE="${{ env.TENANT }}-${{ env.APP_NAME }}-${ENV}"
+            SA_NAME="${{ env.APP_NAME }}-sa"
+
+            if kubectl --context spoke get sa ${SA_NAME} -n ${NAMESPACE} 2>/dev/null; then
+              echo "✅ Service account already exists: ${SA_NAME}"
+            else
+              kubectl --context spoke create serviceaccount ${SA_NAME} -n ${NAMESPACE}
+              echo "✅ Service account created: ${SA_NAME}"
+            fi
+          done
+
+  bootstrap-complete:
+    name: Bootstrap Complete
+    runs-on: ubuntu-latest
+    needs: [setup-ecr, register-repository, register-spoke-cluster, create-namespaces, create-service-accounts]
+    steps:
+      - name: Summary
+        run: |
+          echo "🎉 Bootstrap complete for ${{ env.APP_NAME }}"
+          echo ""
+          echo "✅ ECR repository: ${{ env.ECR_REPO_NAME }}"
+          echo "✅ Repository registered with ArgoCD"
+          echo "✅ Spoke cluster registered: ${{ env.SPOKE_CLUSTER }}"
+          echo "✅ Namespaces created"
+          echo "✅ Service accounts created"
+          echo ""
+          echo "Next steps:"
+          echo "1. Commit Kubernetes manifests to repository"
+          echo "2. Trigger CI/CD workflow: 2-ci-build-scan-push-hpp1-dev.yml"
