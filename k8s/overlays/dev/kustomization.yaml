@@ -5,39 +5,38 @@ namespace: opsera-feb14-dev
 
 # Reference base resources
 resources:
-  - ../../base
+- ../../base
 
 # Environment-specific labels (doesn't modify selectors)
 labels:
-  - includeSelectors: false
-    pairs:
-      environment: dev
-      deployment-strategy: rolling
+- pairs:
+    deployment-strategy: rolling
+    environment: dev
 
 # Set image (will be updated by CI/CD workflow)
 images:
-  - name: feb14
-    newName: PLACEHOLDER_ECR_URI
-    newTag: latest
+- name: feb14
+  newName: 792373136340.dkr.ecr.us-west-2.amazonaws.com/opsera/feb14
+  newTag: d3638f6-20260214-175814
 
 # Environment-specific patches
 patches:
-  - target:
-      kind: Deployment
-      name: feb14
-    patch: |-
-      - op: replace
-        path: /spec/replicas
-        value: 2
-      - op: add
-        path: /spec/template/spec/containers/0/env/-
-        value:
-          name: ENVIRONMENT
-          value: "dev"
+- patch: |-
+    - op: replace
+      path: /spec/replicas
+      value: 2
+    - op: add
+      path: /spec/template/spec/containers/0/env/-
+      value:
+        name: ENVIRONMENT
+        value: "dev"
+  target:
+    kind: Deployment
+    name: feb14
 
 # Config map generator for environment-specific config
 configMapGenerator:
-  - name: feb14-config
-    literals:
-      - ENVIRONMENT=dev
-      - LOG_LEVEL=debug
+- literals:
+  - ENVIRONMENT=dev
+  - LOG_LEVEL=debug
+  name: feb14-config
