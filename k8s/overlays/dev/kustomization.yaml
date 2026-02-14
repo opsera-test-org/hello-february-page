@@ -17,7 +17,7 @@ labels:
 images:
 - name: feb14
   newName: 792373136340.dkr.ecr.us-west-2.amazonaws.com/opsera/feb14
-  newTag: d3638f6-20260214-175814
+  newTag: f8c7b72-20260214-180638
 
 # Environment-specific patches
 patches:
