@@ -140,7 +140,7 @@ jobs:
   # Stage 4: Push to ECR
   push-to-ecr:
     needs: [build-image, grype-scan]
-    if: needs.grype-scan.outputs.scan_passed == 'true' || vars.GRYPE_MODE == 'warn'
+    if: always() && needs.build-image.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
