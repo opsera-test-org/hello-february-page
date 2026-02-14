@@ -16,4 +16,4 @@ labels:
 images:
   - name: PLACEHOLDER_ECR_URI
     newName: 792373136340.dkr.ecr.us-west-2.amazonaws.com/opsera/hpp1
-    newTag: 
+    newTag: 5088f85-20260214-154850
